@@ -1,5 +1,6 @@
 from __future__ import print_function
 import datetime
+from datetime import timedelta
 import argparse
 import pickle
 import os.path
@@ -19,11 +20,63 @@ def get_args():
         description="Google calendar api for getting information on calendar events",
         epilog="googleCal.py -n 10"
     )
+    DurGroup = parser.add_argument_group('DurGroup', 'Duration by category')
+    NxtGroup = parser.add_argument_group('NxtGroup', 'Next events')
 
-    parser.add_argument('-n', '--numEvents', action="store",
-                        help='Number of events to return')
+    DurGroup.add_argument('-d', '--Dur', action="store",
+                        help='Duration by category', default=0)
+    DurGroup.add_argument('-e', '--end', action="store",
+                        help='Duration End Date', default=5)
+    DurGroup.add_argument('-CatDur', action='store',
+                        help="Duration of event by category")
+    NxtGroup.add_argument('-n', '--next', action="store",
+                        help="Next Events", default=5)
 
     return parser.parse_args()
+
+def nextEvents(service, numEvents):
+    start = datetime.datetime.utcnow().isoformat() + 'Z' # 'Z' indicates UTC time
+
+    events_result = service.events().list(calendarId='primary', timeMin=start,
+                                maxResults=numEvents, singleEvents=True,
+                                orderBy='startTime').execute()
+    
+    events = events_result.get('items', [])
+
+    if not events:
+        print('No upcoming events found.')
+    else:
+        result = events
+    
+    print(result)
+
+def dur_by_cat(service, start, end):
+    if start == 0:
+        start = datetime.datetime.utcnow().isoformat() + 'Z' # 'Z' indicates UTC time
+    else:
+        start = datetime.datetime.strptime(start, '%Y-%m-%d')
+    
+    end = start + datetime.timedelta(days=end)
+
+    events_result = service.events().list(calendarId='primary', timeMin=start,
+                                    timeMax=end, singleEvents=True,
+                                    orderBy='startTime').execute()
+    events = events_result.get('items', [])
+    catDict = {}
+    for event in events:
+        start = event['start']['dateTime']
+        end = event['end']['dateTime']
+        eventID = event['id']
+        start = datetime.datetime.strptime(start, '%Y-%m-%dT%H:%M:%S%z')
+        end = datetime.datetime.strptime(end, '%Y-%m-%dT%H:%M:%S%z')
+        duration = end - start
+        if 'colorId' in event:
+            if event['colorId'] in catDict:
+                catDict[event['colorId']] += duration
+            else:
+                catDict[event['colorId']] = duration
+    
+    print(catDict)
 
 def main():
 
@@ -51,30 +104,12 @@ def main():
 
     service = build('calendar', 'v3', credentials=creds)
 
-    # Call the Calendar API
-    now = datetime.datetime.utcnow().isoformat() + 'Z' # 'Z' indicates UTC time
     arguments = get_args()
-    print(arguments)
-    print('Getting the upcoming ' + str(arguments.numEvents) + ' events')
-    events_result = service.events().list(calendarId='primary', timeMin=now,
-                                        maxResults=arguments.numEvents, singleEvents=True,
-                                        orderBy='startTime').execute()
-    events = events_result.get('items', [])
-
-    if not events:
-        print('No upcoming events found.')
-    for event in events:
-        start = event['start']['dateTime']
-        end = event['end']['dateTime']
-        eventID = event['id']
-        start = datetime.datetime.strptime(start, '%Y-%m-%dT%H:%M:%S%z')
-        end = datetime.datetime.strptime(end, '%Y-%m-%dT%H:%M:%S%z')
-        duration = end - start
-
-        eventDetail = service.events().get(calendarId='primary', eventId=eventID).execute()
-        print(eventDetail)
-
-
+    
+    if 'CatDur' in arguments:
+        dur_by_cat(service, arguments.Dur, arguments.end)
+    else:
+        nextEvents(service, arguments.next)
 
 if __name__ == '__main__':
     main()
